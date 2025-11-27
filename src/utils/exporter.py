@@ -61,7 +61,9 @@ def export_to_csv(
     ]
     
     # Добавляем остальные поля в конец
-    ordered_fields = [f for f in field_order if f in all_fields]
+    # product_id всегда должен быть первым, даже если его нет в данных
+    ordered_fields = ["product_id"] if "product_id" not in all_fields else []
+    ordered_fields.extend([f for f in field_order if f in all_fields and f != "product_id"])
     ordered_fields.extend([f for f in sorted(all_fields) if f not in ordered_fields])
     
     with open(output_file, 'w', newline='', encoding='utf-8-sig') as f:
@@ -136,7 +138,9 @@ def export_to_xlsx(
     ]
     
     # Добавляем остальные поля в конец
-    ordered_fields = [f for f in field_order if f in all_fields]
+    # product_id всегда должен быть первым, даже если его нет в данных
+    ordered_fields = ["product_id"] if "product_id" not in all_fields else []
+    ordered_fields.extend([f for f in field_order if f in all_fields and f != "product_id"])
     ordered_fields.extend([f for f in sorted(all_fields) if f not in ordered_fields])
     
     # Заголовки

@@ -167,6 +167,7 @@ class OzonAPIAgent(BaseAgent):
         logger.debug(f"Payload: {payload}")
         
         async with HTTPClient(
+            base_url=None,  # Используем полный URL в запросе
             timeout=self.timeout,
             max_retries=self.config.get("max_retries", 3),
         ) as client:

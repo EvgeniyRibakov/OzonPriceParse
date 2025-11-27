@@ -20,7 +20,7 @@ class HTTPClient:
         Инициализация HTTP клиента.
         
         Args:
-            base_url: Базовый URL для запросов
+            base_url: Базовый URL для запросов (None = использовать полные URL в методах)
             timeout: Таймаут запросов в секундах
             max_retries: Максимальное количество повторов
         """
@@ -31,11 +31,13 @@ class HTTPClient:
     
     async def __aenter__(self):
         """Вход в контекстный менеджер."""
-        self.client = httpx.AsyncClient(
-            base_url=self.base_url,
-            timeout=self.timeout,
-            headers={"User-Agent": settings.user_agent},
-        )
+        client_kwargs = {
+            "timeout": self.timeout,
+            "headers": {"User-Agent": settings.user_agent},
+        }
+        if self.base_url:
+            client_kwargs["base_url"] = self.base_url
+        self.client = httpx.AsyncClient(**client_kwargs)
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):

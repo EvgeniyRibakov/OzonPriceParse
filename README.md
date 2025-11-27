@@ -42,7 +42,15 @@ cp env.example .env
 ## Использование
 
 ```bash
-python src/main.py
+# Активировать виртуальное окружение
+venv\Scripts\activate  # Windows
+source venv/bin/activate  # Linux/Mac
+
+# Запустить (рекомендуется)
+python run.py
+
+# Или альтернативный способ
+python -m src.main
 ```
 
 **Подробная инструкция по тестовому запуску:** см. [TEST_RUN_GUIDE.md](TEST_RUN_GUIDE.md)

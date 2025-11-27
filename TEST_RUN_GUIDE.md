@@ -310,7 +310,13 @@ venv\Scripts\activate  # Windows
 # или
 source venv/bin/activate  # Linux/Mac
 
-# Запустить
+# Вариант 1: Запуск через run.py (рекомендуется)
+python run.py
+
+# Вариант 2: Запуск через модуль
+python -m src.main
+
+# Вариант 3: Прямой запуск (требует установки пакета)
 python src/main.py
 ```
 

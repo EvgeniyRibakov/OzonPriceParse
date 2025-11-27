@@ -3,6 +3,12 @@
 import asyncio
 import sys
 from pathlib import Path
+
+# Добавляем корень проекта в PYTHONPATH для корректных импортов
+project_root = Path(__file__).parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
 from loguru import logger
 from src.utils.logger import setup_logger
 from src.agents.ozon_api_agent import OzonAPIAgent
