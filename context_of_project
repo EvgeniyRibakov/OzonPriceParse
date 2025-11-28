@@ -1,0 +1,131 @@
+    Алгоритм действий. Парсер цен после СПП:
+
+    зайти по ссылке https://seller.ozon.ru/app/products?token=eyJhbGciOiJIUzI1NiIsIm96b25pZCI6Im5vdHNlbnNpdGl2ZSIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjo4NjYwNzMzNSwiaXNfcmVnaXN0cmF0aW9uIjpmYWxzZSwicmV0dXJuX3VybCI6Imh0dHBzOi8vc2VsbGVyLm96b24ucnUvYXBwL3Byb2R1Y3RzIiwicGF5bG9hZCI6bnVsbCwiZXhwIjoxNzY0MzQ3MDIxLCJpYXQiOjE3NjQzNDcwMTEsImlzcyI6Im96b25pZCJ9.xqCyVmJNVURosfFveqEuSIpYxTU-tNDNJeQt7VtzX14
+    если выйдет окно авторизации, то нужно будет нажать на кнопку “Войти” 
+    код элемента: <span class="c9r90-a2">Войти</span>
+    полный код этой страницы в pages_code\log_in_page.html
+
+    После нажатия кнопки и перехода на след страницу, надо ввести номер телефона +79966444210 в поле <input autocomplete="off" type="tel" name="autocomplete" maxlength="" autofocus="autofocus" class="d5_3_10-a d5_3_10-a3 oy5_35 d5_3_10-a4">
+    полный код этой страницы: pages_code\input_number_page.html
+
+    на странице с “Вход по QR-коду”	нужно нажать на “Войти другим способом”
+    <div class="ga5_3_10-a2 tsBodyControl500Medium">Войти другим способом</div>
+    полный код этой страницы: pages_code\log_different_way_page.html
+
+    На странице “	Введите код из пуш-уведомления” надо спросить у меня код, чтобы я его тебе ввёл. После этого вставить этот код в поле для ввода	
+    <input autocomplete="off" inputmode="numeric" type="number" name="otp" maxlength="6" autofocus="autofocus" class="d5_3_10-a d5_3_10-a5">
+    полный код этой страницы: pages_code\push_auth_page.html
+
+    Потом тоже может быть окно “Убедиться что это вы”, там тоже нужно нажать на “Войти”, дальше спросить у меня код, получить его от меня и вставить в поле <input autocomplete="off" inputmode="numeric" type="number" name="extraOtp" maxlength="6" autofocus="autofocus" class="d5_3_10-a d5_3_10-a5">
+    полный код этой страницы: pages_code\log_different_way_page.html
+
+    Потом ты заходишь на саму страницу товара и нажимаешь на “Скачать шаблоны” <span class="c9r90-a2">Скачать шаблоны</span>
+    полный код этой страницы: pages_code\products_with_report_page
+
+    Потом это скачивается и тебе нужно открыть этот файл. И пока на этом всё
+
+    всё это полностью транслируй в браузере, чтобы я видел. 
+
+    вот ридми файл другого агента. Механика похожа, библиотеки используются одни и те же по идее https://github.com/EvgeniyRibakov/ProductRadar/blob/testing-logs/README.md
+
+
+Перефразировка:
+Задача: Парсинг цен с Seller Ozon после прохождения двухфакторной аутентификации (SPP)
+
+Цель: Автоматизировать вход в личный кабинет продавца Ozon, скачать отчёт с ценами и предоставить к нему доступ.
+
+Ключевые требования:
+
+    Полная визуализация: Все действия должны выполняться в браузере с трансляцией экрана для пользователя.
+
+    Интерактивность: Скрипт должен запрашивать у пользователя коды двухфакторной аутентификации, когда это необходимо.
+
+    Адаптивность: Алгоритм должен корректно обрабатывать разные сценарии входа (пуш, смс, дополнительная проверка).
+
+Технический контекст:
+
+    Библиотеки: Для реализации можно использовать подход, аналогичный проекту из README.md по ссылке: ProductRadar на GitHub. Там применяются playwright (или selenium) для браузерной автоматизации и pytest для структурирования тестов.
+
+    Исходные данные: Логин (+79966444210) и стартовая ссылка предоставлены.
+
+Пошаговый алгоритм
+
+    Инициализация сессии
+
+        Перейди по целевой ссылке:
+        https://seller.ozon.ru/app/products?token=eyJhbGciOiJIUzI1NiIsIm96b25pZCI6Im5vdHNlbnNpdGl2ZSIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjo4NjYwNzMzNSwiaXNfcmVnaXN0cmF0aW9uIjpmYWxzZSwicmV0dXJuX3VybCI6Imh0dHBzOi8vc2VsbGVyLm96b24ucnUvYXBwL3Byb2R1Y3RzIiwicGF5bG9hZCI6bnVsbCwiZXhwIjoxNzY0MzQ3MDIxLCJpYXQiOjE3NjQzNDcwMTEsImlzcyI6Im96b25pZCJ9.xqCyVmJNVURosfFveqEuSIpYxTU-tNDNJeQt7VtzX14
+
+
+    Обработка страницы авторизации
+
+        Ожидаемый элемент: Если появится кнопка с span и классом c9r90-a2 и текстом "Войти".
+
+        Действие: Найди и нажми на эту кнопку.
+
+        Эталон HTML: pages_code\log_in_page.html
+
+    Ввод номера телефона
+
+        Ожидаемый элемент: Поле ввода типа tel с классом d5_3_10-a3.
+
+        Действие: Введи в это поле номер телефона: +79966444210.
+
+        Эталон HTML: pages_code\input_number_page.html
+
+    Выбор альтернативного способа входа
+
+        Ожидаемый элемент: На странице "Вход по QR-коду" найди элемент div с текстом "Войти другим способом".
+
+        Действие: Нажми на этот элемент.
+
+        Эталон HTML: pages_code\log_different_way_page.html
+
+    Прохождение первой двухфакторной аутентификации
+
+        Сценарий: Страница "Введите код из пуш-уведомления".
+
+        Ожидаемый элемент: Поле ввода input с name="otp".
+
+        Действие:
+
+            Приоставновить выполнение скрипта.
+
+            Запроси у пользователя код и получи его ввод.
+
+            Введи полученный код в целевое поле.
+
+        Эталон HTML: pages_code\push_auth_page.html
+
+    Обработка дополнительной проверки безопасности
+
+        Сценарий (опциональный): Если появится окно "Убедиться, что это вы".
+
+        Ожидаемый элемент: Кнопка "Войти" (аналогично шагу 2) и последующее поле для кода с name="extraOtp".
+
+        Действие:
+
+            Нажми кнопку "Войти".
+
+            Снова запроси у пользователя код и введи его в появившееся поле.
+
+        Эталон HTML: pages_code\log_different_way_page.html
+
+    Скачивание отчёта
+
+        Ожидаемый элемент: После успешного входа, на странице товаров, найди кнопку/ссылку с текстом "Скачать шаблоны" (элемент span с классом c9r90-a2) <span class="c9r90-a2">Скачать шаблоны</span>.
+
+        Действие: Нажми на эту кнопку, чтобы инициировать скачивание файла.
+
+        Эталон HTML: pages_code\products_with_report_page.html
+
+    Завершение работы
+
+        Дождись окончания загрузки файла.
+
+        Открой скачанный файл для проверки.
+
+        Предоставь пользователю доступ к файлу. На этом этапе основная задача считается выполненной.
+
+        
+
+

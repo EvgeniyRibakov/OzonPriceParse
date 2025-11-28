@@ -53,6 +53,8 @@ logs/
 data/
 *.csv
 *.json
+*.xlsx
+*.xls
 !requirements.json
 !package.json
 
