@@ -6,18 +6,21 @@
     полный код этой страницы в pages_code\log_in_page.html
 
     После нажатия кнопки и перехода на след страницу, надо ввести номер телефона +79966444210 в поле <input autocomplete="off" type="tel" name="autocomplete" maxlength="" autofocus="autofocus" class="d5_3_10-a d5_3_10-a3 oy5_35 d5_3_10-a4">
-    полный код этой страницы: pages_code\input_number_page.html
+    После ввода телефона нужно нажать на кнопку "Войти" чтобы отправить код. Кнопка: <button type="submit" class="b25_5_1-a0 b25_5_1-b6 b25_5_1-b3 b25_5_1-a5">...<div class="b25_5_1-a"></div></button>
+    Можно использовать селектор: button[type="submit"].b25_5_1-a0 или div.b25_5_1-a (внутренний div кнопки)
+    полный код этой страницы: pages_code\input_phone_page.html 
 
     на странице с “Вход по QR-коду”	нужно нажать на “Войти другим способом”
     <div class="ga5_3_10-a2 tsBodyControl500Medium">Войти другим способом</div>
     полный код этой страницы: pages_code\log_different_way_page.html
 
-    На странице “	Введите код из пуш-уведомления” надо спросить у меня код, чтобы я его тебе ввёл. После этого вставить этот код в поле для ввода	
+    На странице "	Введите код из пуш-уведомления" надо спросить у меня код, чтобы я его тебе ввёл. После этого вставить этот код в поле для ввода	
     <input autocomplete="off" inputmode="numeric" type="number" name="otp" maxlength="6" autofocus="autofocus" class="d5_3_10-a d5_3_10-a5">
     полный код этой страницы: pages_code\push_auth_page.html
 
-    Потом тоже может быть окно “Убедиться что это вы”, там тоже нужно нажать на “Войти”, дальше спросить у меня код, получить его от меня и вставить в поле <input autocomplete="off" inputmode="numeric" type="number" name="extraOtp" maxlength="6" autofocus="autofocus" class="d5_3_10-a d5_3_10-a5">
-    полный код этой страницы: pages_code\log_different_way_page.html
+    Потом может быть окно "Давайте убедимся, что это вы" (проверка с нового устройства). Если появилась эта страница, нужно нажать на кнопку "Войти" с селектором <div class="b25_5_1-a"></div> внутри кнопки <button type="submit" class="b25_5_1-a0 ...">
+    После нажатия будет еще одна страница с полем для ввода кода <input autocomplete="off" inputmode="numeric" type="number" name="extraOtp" maxlength="6" autofocus="autofocus" class="d5_3_10-a d5_3_10-a5">
+    полный код страницы проверки: pages_code\verify_identity_page.html
 
     Потом ты заходишь на саму страницу товара и нажимаешь на “Скачать шаблоны” <span class="c9r90-a2">Скачать шаблоны</span>
     полный код этой страницы: pages_code\products_with_report_page

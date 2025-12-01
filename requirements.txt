@@ -23,4 +23,7 @@ openpyxl>=3.1.0
 
 # Браузерная автоматизация
 playwright>=1.40.0
+selenium>=4.15.0
+undetected-chromedriver>=3.5.0
+webdriver-manager>=4.0.0
 

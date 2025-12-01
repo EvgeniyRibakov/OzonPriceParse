@@ -89,7 +89,7 @@ git push -u origin dev/browser-automation
 ```bash
 git checkout -b feature/ozon-parser
 git add .
-git commit -m "feat: добавлена автоматизация браузера для парсинга цен Ozon"
+git commit -m ""
 git push -u origin feature/ozon-parser
 ```
 

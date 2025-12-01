@@ -10,6 +10,12 @@ class Settings(BaseSettings):
     ozon_start_url: str = "https://seller.ozon.ru/app/products"
     phone_number: str = "+79966444210"
 
+    # Ozon Statistics API (цены товаров /statistics/v1/price)
+    ozon_client_id: str | None = None
+    ozon_api_key: str | None = None
+    # Базовый URL берём у Seller API, а дальше используем префикс /statistics
+    ozon_api_base_url: str = "https://api-seller.ozon.ru"
+
     # Задержки (в секундах) для имитации человеческого поведения
     delay_before_click: float = 1.5  # Задержка перед кликом
     delay_after_click: float = 2.0  # Задержка после клика
@@ -32,4 +38,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+
+
+
 

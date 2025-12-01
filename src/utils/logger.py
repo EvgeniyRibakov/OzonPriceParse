@@ -50,3 +50,6 @@ def setup_logger(logs_dir: Path) -> None:
 
     logger.info("Логирование настроено", logs_dir=str(logs_dir))
 
+
+
+
