@@ -1,5 +1,8 @@
 """Настройки приложения."""
+import os
+import sys
 from pathlib import Path
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -33,6 +36,39 @@ class Settings(BaseSettings):
     browser_type: str = "chromium"  # chromium, firefox, webkit
     viewport_width: int = 1920
     viewport_height: int = 1080
+    # Профиль Chrome для сохранения авторизации
+    chrome_user_data_dir: Path | None = None  # Путь к папке User Data Chrome (автоматически определяется, если не указан)
+    chrome_profile_name: str = "Default"  # Имя профиля (Default, Profile 1, и т.д.)
+
+    @field_validator('chrome_user_data_dir', mode='before')
+    @classmethod
+    def convert_path(cls, v):
+        """Конвертирует строку в Path или определяет стандартный путь."""
+        if v is None or v == "":
+            # Автоматически определяем стандартный путь для текущей ОС
+            if os.name == 'nt':  # Windows
+                local_appdata = os.getenv('LOCALAPPDATA')
+                if local_appdata:
+                    return Path(local_appdata) / "Google" / "Chrome" / "User Data"
+                # Fallback на стандартный путь
+                return Path.home() / "AppData" / "Local" / "Google" / "Chrome" / "User Data"
+            elif sys.platform == 'darwin':  # macOS
+                return Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
+            else:  # Linux
+                return Path.home() / ".config" / "google-chrome"
+        
+        if isinstance(v, str):
+            # Поддержка переменных окружения Windows (%LOCALAPPDATA%)
+            if v.startswith('%') and v.endswith('%'):
+                env_var = v[1:-1]
+                env_value = os.getenv(env_var)
+                if env_value:
+                    return Path(env_value) / "Google" / "Chrome" / "User Data"
+            # Поддержка ~ для домашней директории
+            if v.startswith('~'):
+                return Path(v).expanduser()
+            return Path(os.path.expandvars(v))  # Поддержка переменных окружения
+        return v
 
     class Config:
         env_file = ".env"
