@@ -1,4 +1,5 @@
 """Агент для автоматизации браузера Ozon Seller (Selenium версия)."""
+import json
 import os
 import re
 import sys
@@ -8,9 +9,16 @@ from pathlib import Path
 from typing import Optional
 
 from loguru import logger
+from openpyxl import load_workbook
+import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -69,6 +77,16 @@ class BrowserAgent:
                 profile_path = user_data_path / self.settings.chrome_profile_name
                 if os.path.exists(str(profile_path.absolute())):
                     logger.success(f"Папка профиля найдена: {profile_path}")
+                    
+                    # Обновляем настройки загрузок в профиле Chrome
+                    downloads_path = str(self.downloads_dir.absolute())
+                    logger.info("="*60)
+                    logger.info("ОБНОВЛЕНИЕ НАСТРОЕК ЗАГРУЗОК В ПРОФИЛЕ CHROME")
+                    logger.info("="*60)
+                    if self._update_chrome_preferences(profile_path, downloads_path):
+                        logger.success("✓ Настройки профиля Chrome успешно обновлены")
+                    else:
+                        logger.warning("⚠ Не удалось обновить настройки профиля, используем стандартные prefs")
                 else:
                     logger.warning(f"Папка профиля не найдена: {profile_path}")
             else:
@@ -225,16 +243,289 @@ class BrowserAgent:
         logger.info(f"Пользователь ввел: {user_input[:2]}** (скрыто)")
         return user_input
 
-    def open_file(self, filepath: Path) -> None:
-        """Открывает файл в системе."""
+    def _update_chrome_preferences(self, profile_path: Path, downloads_path: str) -> bool:
+        """Обновляет файл Preferences профиля Chrome для изменения папки загрузок.
+        
+        Args:
+            profile_path: Путь к папке профиля Chrome
+            downloads_path: Путь к папке для загрузок
+            
+        Returns:
+            True если настройки успешно обновлены, False в противном случае
+        """
+        preferences_file = profile_path / "Preferences"
+        
+        if not preferences_file.exists():
+            logger.warning(f"Файл Preferences не найден: {preferences_file}")
+            logger.info("Chrome создаст файл Preferences при первом запуске с этим профилем")
+            return False
+        
+        # Проверяем, не заблокирован ли файл (Chrome может быть запущен)
         try:
-            if os.name == 'nt':  # Windows
-                os.startfile(filepath)
-            elif os.name == 'posix':  # macOS/Linux
-                os.system(f'open "{filepath}"' if sys.platform == 'darwin' else f'xdg-open "{filepath}"')
-            logger.success(f"Файл открыт: {filepath}")
+            # Пробуем открыть файл в режиме записи для проверки блокировки
+            test_file = open(preferences_file, 'r+', encoding='utf-8')
+            test_file.close()
+        except PermissionError:
+            logger.warning("⚠ Файл Preferences заблокирован. Возможно, Chrome запущен.")
+            logger.warning("⚠ Закройте все окна Chrome перед запуском скрипта для изменения настроек.")
+            logger.info("→ Продолжаем с настройками через prefs (могут быть перезаписаны Chrome)")
+            return False
         except Exception as e:
-            logger.error(f"Ошибка при открытии файла: {e}")
+            logger.warning(f"Не удалось проверить доступность файла Preferences: {e}")
+            return False
+        
+        try:
+            # Читаем текущие настройки
+            logger.info(f"Чтение файла Preferences: {preferences_file}")
+            with open(preferences_file, 'r', encoding='utf-8') as f:
+                prefs = json.load(f)
+            
+            # Обновляем настройки загрузок
+            # Chrome хранит настройки в разных местах в зависимости от версии
+            updated = False
+            
+            # Способ 1: Обновляем в секции download
+            if 'download' not in prefs:
+                prefs['download'] = {}
+            
+            old_download_dir = prefs['download'].get('default_directory', 'не установлена')
+            prefs['download']['default_directory'] = downloads_path
+            prefs['download']['directory_upgrade'] = True
+            updated = True
+            logger.info(f"Обновлена секция download: {old_download_dir} -> {downloads_path}")
+            
+            # Способ 2: Обновляем в секции profile (для некоторых версий Chrome)
+            if 'profile' not in prefs:
+                prefs['profile'] = {}
+            
+            if 'default_content_setting_values' not in prefs['profile']:
+                prefs['profile']['default_content_setting_values'] = {}
+            
+            prefs['profile']['default_content_setting_values']['automatic_downloads'] = 1
+            
+            # Способ 3: Обновляем в корне (для старых версий Chrome)
+            prefs['download.default_directory'] = downloads_path
+            prefs['download.prompt_for_download'] = False
+            prefs['download.directory_upgrade'] = True
+            
+            # Сохраняем обновлённые настройки
+            logger.info(f"Сохранение обновлённых настроек в {preferences_file}")
+            # Создаём резервную копию
+            backup_file = preferences_file.with_suffix('.prefs.backup')
+            try:
+                import shutil
+                shutil.copy2(preferences_file, backup_file)
+                logger.info(f"Создана резервная копия: {backup_file}")
+            except Exception as e:
+                logger.warning(f"Не удалось создать резервную копию: {e}")
+            
+            # Сохраняем обновлённый файл
+            try:
+                with open(preferences_file, 'w', encoding='utf-8') as f:
+                    json.dump(prefs, f, indent=2, ensure_ascii=False)
+            except PermissionError:
+                logger.warning("⚠ Не удалось записать файл Preferences (файл заблокирован)")
+                logger.warning("⚠ Закройте все окна Chrome перед запуском скрипта")
+                return False
+            
+            logger.success(f"✓ Настройки загрузок обновлены в профиле Chrome: {downloads_path}")
+            return True
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Ошибка при чтении JSON файла Preferences: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Ошибка при обновлении Preferences: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            return False
+
+    def _find_downloaded_file(self, template_name: str, time_before_click: float, max_wait: int = 10) -> Optional[Path]:
+        """Вспомогательный метод для поиска скачанного файла в файловой системе.
+        
+        Args:
+            template_name: Название шаблона (например, "Цены товаров")
+            time_before_click: Время до клика (для проверки, что файл новый)
+            max_wait: Максимальное время ожидания в секундах
+            
+        Returns:
+            Path к найденному файлу или None
+        """
+        if template_name is None:
+            template_name = "Цены товаров"
+        
+        # Собираем все возможные папки для поиска файла
+        search_dirs = [self.downloads_dir]
+        
+        def add_dir_if_exists(path: Path, description: str):
+            """Добавляет папку в список поиска, если она существует."""
+            if path.exists() and path not in search_dirs:
+                search_dirs.append(path)
+        
+        # Стандартные папки загрузок
+        add_dir_if_exists(Path.home() / "Downloads", "стандартную папку загрузок")
+        
+        if os.name == 'nt':  # Windows
+            user_profile = os.getenv('USERPROFILE')
+            if user_profile:
+                add_dir_if_exists(Path(user_profile) / "Downloads", "папку загрузок из USERPROFILE")
+            
+            # Реестр Windows
+            try:
+                import winreg
+                key = winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
+                )
+                downloads_path = winreg.QueryValueEx(key, "{374DE290-123F-4565-9164-39C4925E467B}")[0]
+                winreg.CloseKey(key)
+                if downloads_path:
+                    add_dir_if_exists(Path(downloads_path), "папку загрузок из реестра")
+            except:
+                pass
+            
+            # Альтернативные пути
+            user_profile = os.getenv('USERPROFILE') or str(Path.home())
+            alternative_paths = [
+                Path(user_profile) / "Documents" / "Downloads",
+                Path(user_profile) / "Документы" / "Downloads",
+                Path(user_profile) / "Documents" / "Загрузки",
+            ]
+            
+            for drive_letter in "CDEFGHIJKLMNOPQRSTUVWXYZ":
+                drive_path = Path(f"{drive_letter}:") / "Документы и файлы" / "Documents" / "Downloads"
+                if drive_path.exists():
+                    alternative_paths.append(drive_path)
+            
+            for alt_path in alternative_paths:
+                if alt_path.exists():
+                    add_dir_if_exists(alt_path, "альтернативную папку")
+        
+        # Папка загрузок из профиля Chrome
+        if self.settings.chrome_user_data_dir:
+            profile_downloads = self.settings.chrome_user_data_dir / self.settings.chrome_profile_name / "Downloads"
+            add_dir_if_exists(profile_downloads, "папку загрузок профиля Chrome")
+        
+        # Формируем паттерн для поиска
+        today_date = datetime.now().strftime("%d.%m.%Y")
+        template_name_escaped = re.escape(template_name)
+        file_pattern = re.compile(
+            rf"^{template_name_escaped}_{re.escape(today_date)}(?:\s*\(\d+\))?\.xlsx$",
+            re.IGNORECASE
+        )
+        
+        # Ищем файл
+        waited = 0
+        wait_interval = 1
+        while waited < max_wait:
+            matching_files = []
+            for search_dir in search_dirs:
+                try:
+                    all_files = list(search_dir.glob("*.xlsx"))
+                    for file_path in all_files:
+                        if file_pattern.match(file_path.name):
+                            matching_files.append(file_path)
+                except:
+                    pass
+            
+            if matching_files:
+                matching_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                latest_file = matching_files[0]
+                file_mtime = latest_file.stat().st_mtime
+                
+                # Проверяем, что файл новый
+                if file_mtime >= time_before_click:
+                    return latest_file
+                # Если файл старый, но недавно изменён (в пределах 5 минут), тоже возвращаем
+                elif (time.time() - file_mtime) < 300:
+                    return latest_file
+            
+            time.sleep(wait_interval)
+            waited += wait_interval
+        
+        return None
+
+    def open_file(self, filepath: Path) -> None:
+        """Открывает файл в системе используя стандартное приложение."""
+        logger.info("="*60)
+        logger.info(f"ОТКРЫТИЕ ФАЙЛА: {filepath.name}")
+        logger.info("="*60)
+        
+        # Проверяем, что файл существует
+        if not filepath.exists():
+            logger.error(f"Файл не существует: {filepath}")
+            raise FileNotFoundError(f"Файл не найден: {filepath}")
+        
+        # Проверяем, что это файл, а не директория
+        if not filepath.is_file():
+            logger.error(f"Путь указывает не на файл: {filepath}")
+            raise ValueError(f"Путь не является файлом: {filepath}")
+        
+        logger.info(f"Путь к файлу: {filepath.absolute()}")
+        logger.info(f"Размер файла: {filepath.stat().st_size} байт")
+        
+        opened = False
+        
+        # Способ 1: os.startfile (Windows) - самый надежный для Windows
+        if os.name == 'nt':  # Windows
+            try:
+                logger.info("Способ 1: Открытие через os.startfile (Windows)...")
+                os.startfile(str(filepath.absolute()))
+                opened = True
+                logger.success("✓ Файл открыт через os.startfile")
+            except Exception as e:
+                logger.warning(f"os.startfile не сработал: {e}")
+        
+        # Способ 2: subprocess для Windows (альтернатива)
+        if not opened and os.name == 'nt':
+            try:
+                logger.info("Способ 2: Открытие через subprocess (Windows)...")
+                import subprocess
+                subprocess.Popen(['start', '', str(filepath.absolute())], shell=True)
+                opened = True
+                logger.success("✓ Файл открыт через subprocess")
+            except Exception as e:
+                logger.warning(f"subprocess не сработал: {e}")
+        
+        # Способ 3: macOS/Linux через open/xdg-open
+        if not opened and os.name == 'posix':
+            try:
+                if sys.platform == 'darwin':  # macOS
+                    logger.info("Способ 3: Открытие через open (macOS)...")
+                    os.system(f'open "{filepath.absolute()}"')
+                else:  # Linux
+                    logger.info("Способ 3: Открытие через xdg-open (Linux)...")
+                    os.system(f'xdg-open "{filepath.absolute()}"')
+                opened = True
+                logger.success("✓ Файл открыт через системную команду")
+            except Exception as e:
+                logger.warning(f"Системная команда не сработала: {e}")
+        
+        # Способ 4: subprocess для macOS/Linux (альтернатива)
+        if not opened:
+            try:
+                logger.info("Способ 4: Открытие через subprocess (универсальный)...")
+                import subprocess
+                if sys.platform == 'darwin':  # macOS
+                    subprocess.Popen(['open', str(filepath.absolute())])
+                elif sys.platform.startswith('linux'):  # Linux
+                    subprocess.Popen(['xdg-open', str(filepath.absolute())])
+                elif os.name == 'nt':  # Windows (если предыдущие способы не сработали)
+                    subprocess.Popen(['cmd', '/c', 'start', '', str(filepath.absolute())], shell=False)
+                opened = True
+                logger.success("✓ Файл открыт через subprocess (универсальный)")
+            except Exception as e:
+                logger.warning(f"subprocess (универнальный) не сработал: {e}")
+        
+        if opened:
+            logger.success(f"✓✓✓ ФАЙЛ УСПЕШНО ОТКРЫТ: {filepath.name} ✓✓✓")
+            logger.info(f"Файл должен открыться в программе по умолчанию для .xlsx файлов")
+            time.sleep(1)  # Даём время на открытие файла
+        else:
+            logger.error("❌ Не удалось открыть файл ни одним из способов!")
+            logger.error("Попробуйте открыть файл вручную:")
+            logger.error(f"  {filepath.absolute()}")
+            raise RuntimeError(f"Не удалось открыть файл: {filepath}")
 
     def execute_flow(self, start_url: str) -> Optional[Path]:
         """Выполнение основного потока работы (по алгоритму из context_of_project).
@@ -778,279 +1069,6 @@ class BrowserAgent:
                 current_url = self.driver.current_url
                 logger.info(f"Текущий URL после клика: {current_url}")
                 
-                # Шаг 12.5: Открытие файла через Chrome Downloads
-                logger.info("="*60)
-                logger.info("ОТКРЫТИЕ ФАЙЛА ЧЕРЕЗ CHROME DOWNLOADS")
-                logger.info("="*60)
-                
-                try:
-                    # Ждём немного, чтобы файл начал скачиваться
-                    time.sleep(2)
-                    
-                    # Способ 1: Пробуем найти кнопку "Скачанные файлы" на панели инструментов
-                    downloads_button_found = False
-                    downloads_button_selectors = [
-                        "//*[contains(text(), 'Скачанные файлы')]",
-                        "//*[contains(text(), 'Downloads')]",
-                        "//*[@title='Скачанные файлы']",
-                        "//*[@title='Downloads']",
-                        "//*[@aria-label='Скачанные файлы']",
-                        "//*[@aria-label='Downloads']",
-                        "//button[contains(@class, 'download')]",
-                        "//a[contains(@href, 'downloads')]",
-                    ]
-                    
-                    for selector in downloads_button_selectors:
-                        try:
-                            buttons = self.driver.find_elements(By.XPATH, selector)
-                            for btn in buttons:
-                                try:
-                                    if btn.is_displayed() and btn.is_enabled():
-                                        logger.info(f"✓ Найдена кнопка 'Скачанные файлы': {btn.text or btn.get_attribute('title') or btn.get_attribute('aria-label')}")
-                                        btn.click()
-                                        downloads_button_found = True
-                                        time.sleep(1.5)
-                                        break
-                                except:
-                                    continue
-                            if downloads_button_found:
-                                break
-                        except:
-                            continue
-                    
-                    # Способ 2: Если кнопка не найдена, переходим напрямую на chrome://downloads/
-                    if not downloads_button_found:
-                        logger.info("Кнопка 'Скачанные файлы' не найдена, переходим на chrome://downloads/")
-                        self.driver.get("chrome://downloads/")
-                        time.sleep(3)  # Даём больше времени на загрузку страницы
-                    
-                    # Теперь ищем самый верхний (самый новый) файл на странице downloads
-                    logger.info("Ищем самый новый файл на странице downloads...")
-                    
-                    # Страница chrome://downloads/ использует Shadow DOM, поэтому используем JavaScript
-                    file_element = None
-                    clicked = False
-                    
-                    # Способ 1: Используем JavaScript для работы с Shadow DOM на chrome://downloads/
-                    try:
-                        logger.info("Пробуем найти файл через JavaScript (Shadow DOM)...")
-                        # JavaScript код для поиска первого .xlsx файла на странице downloads
-                        # Ищем элемент с id="file-link" внутри Shadow DOM
-                        click_result = self.driver.execute_script("""
-                            // Ищем downloads-manager
-                            var downloadsManager = document.querySelector('downloads-manager');
-                            if (!downloadsManager) {
-                                console.log('downloads-manager не найден');
-                                return {success: false, error: 'downloads-manager not found'};
-                            }
-                            
-                            // Получаем Shadow Root
-                            var shadowRoot = downloadsManager.shadowRoot;
-                            if (!shadowRoot) {
-                                console.log('Shadow root downloads-manager не найден');
-                                return {success: false, error: 'shadowRoot not found'};
-                            }
-                            
-                            // Ищем downloads-list
-                            var downloadsList = shadowRoot.querySelector('downloads-list');
-                            if (!downloadsList) {
-                                console.log('downloads-list не найден');
-                                return {success: false, error: 'downloads-list not found'};
-                            }
-                            
-                            // Получаем Shadow Root downloads-list
-                            var listShadowRoot = downloadsList.shadowRoot;
-                            if (!listShadowRoot) {
-                                console.log('Shadow root downloads-list не найден');
-                                return {success: false, error: 'listShadowRoot not found'};
-                            }
-                            
-                            // Ищем все элементы download-item
-                            var downloadItems = listShadowRoot.querySelectorAll('download-item');
-                            if (!downloadItems || downloadItems.length === 0) {
-                                console.log('download-item элементы не найдены');
-                                return {success: false, error: 'download-items not found'};
-                            }
-                            
-                            console.log('Найдено элементов download-item: ' + downloadItems.length);
-                            
-                            // Ищем первый файл с расширением .xlsx (самый верхний в списке)
-                            for (var i = 0; i < downloadItems.length; i++) {
-                                var item = downloadItems[i];
-                                var itemShadowRoot = item.shadowRoot;
-                                if (!itemShadowRoot) {
-                                    console.log('Shadow root для download-item ' + i + ' не найден');
-                                    continue;
-                                }
-                                
-                                // Ищем элемент с id="file-link" - это ссылка на файл
-                                var fileLink = itemShadowRoot.querySelector('#file-link');
-                                if (!fileLink) {
-                                    console.log('file-link не найден в элементе ' + i);
-                                    continue;
-                                }
-                                
-                                // Получаем название файла из атрибута title или текста
-                                var fileName = fileLink.getAttribute('title') || fileLink.textContent || fileLink.innerText || '';
-                                console.log('Найден файл ' + i + ': ' + fileName);
-                                
-                                // Проверяем, что это .xlsx файл
-                                if (fileName.toLowerCase().includes('.xlsx')) {
-                                    console.log('Найден .xlsx файл: ' + fileName);
-                                    // Кликаем на элемент
-                                    try {
-                                        fileLink.click();
-                                        console.log('Клик выполнен успешно');
-                                        return {success: true, fileName: fileName, index: i};
-                                    } catch (clickError) {
-                                        console.log('Ошибка при клике: ' + clickError);
-                                        // Пробуем через dispatchEvent
-                                        try {
-                                            var clickEvent = new MouseEvent('click', {
-                                                bubbles: true,
-                                                cancelable: true,
-                                                view: window
-                                            });
-                                            fileLink.dispatchEvent(clickEvent);
-                                            console.log('Клик через dispatchEvent выполнен');
-                                            return {success: true, fileName: fileName, index: i};
-                                        } catch (eventError) {
-                                            console.log('Ошибка при dispatchEvent: ' + eventError);
-                                            return {success: false, error: 'click failed', fileName: fileName};
-                                        }
-                                    }
-                                }
-                            }
-                            
-                            console.log('.xlsx файл не найден');
-                            return {success: false, error: 'xlsx file not found'};
-                        """)
-                        
-                        if click_result and click_result.get('success'):
-                            logger.success(f"✓ Файл найден и открыт: {click_result.get('fileName', 'Unknown')}")
-                            time.sleep(2)
-                            return None
-                        else:
-                            logger.warning(f"⚠ Не удалось найти или открыть файл через JavaScript: {click_result.get('error', 'unknown error') if click_result else 'no result'}")
-                    except Exception as e:
-                        logger.warning(f"Ошибка при работе с Shadow DOM: {e}")
-                        import traceback
-                        logger.debug(traceback.format_exc())
-                    
-                    # Способ 2: Пробуем обычные селекторы (на случай, если Shadow DOM недоступен)
-                    if not clicked:
-                        logger.info("Пробуем обычные селекторы...")
-                        file_selectors = [
-                            "//*[contains(@class, 'download')]//*[contains(text(), '.xlsx')]",
-                            "//*[contains(@id, 'download')]//*[contains(text(), '.xlsx')]",
-                            "//*[contains(text(), '.xlsx')]",
-                            f"//*[contains(text(), '{selected_template_name}')]",
-                            "//a[contains(@href, '.xlsx')]",
-                            "//*[@role='listitem']//*[contains(text(), '.xlsx')]",
-                            "//download-item//*[contains(text(), '.xlsx')]",
-                        ]
-                        
-                        for file_selector in file_selectors:
-                            try:
-                                file_elements = self.driver.find_elements(By.XPATH, file_selector)
-                                if file_elements:
-                                    # Берём первый элемент (обычно самый новый файл вверху списка)
-                                    file_element = file_elements[0]
-                                    logger.success(f"✓ Найден файл на странице downloads: {file_element.text}")
-                                    break
-                            except:
-                                continue
-                        
-                        # Если не нашли по тексту, пробуем найти кликабельные элементы
-                        if not file_element:
-                            try:
-                                # Ищем все кликабельные элементы на странице downloads
-                                clickable_elements = self.driver.find_elements(By.XPATH, "//a | //button | //*[@role='button'] | //*[@onclick] | //*[@role='link']")
-                                # Фильтруем те, что содержат .xlsx в тексте или атрибутах
-                                for elem in clickable_elements:
-                                    try:
-                                        text = elem.text or elem.get_attribute('title') or elem.get_attribute('aria-label') or ''
-                                        href = elem.get_attribute('href') or ''
-                                        if '.xlsx' in text.lower() or '.xlsx' in href.lower() or (selected_template_name and selected_template_name in text):
-                                            file_element = elem
-                                            logger.success(f"✓ Найден кликабельный элемент с файлом: {text or href}")
-                                            break
-                                    except:
-                                        continue
-                            except Exception as e:
-                                logger.debug(f"Ошибка при поиске кликабельных элементов: {e}")
-                    
-                    # Если нашли файл, кликаем на него
-                    if file_element and not clicked:
-                        try:
-                            logger.info("Кликаем на самый новый файл...")
-                            # Прокручиваем к элементу
-                            self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", file_element)
-                            time.sleep(0.5)
-                            
-                            # Пробуем разные способы клика
-                            clicked = False
-                            
-                            # Способ 1: Обычный клик
-                            try:
-                                file_element.click()
-                                clicked = True
-                                logger.success("✓ Клик на файл выполнен успешно")
-                            except Exception as e:
-                                logger.debug(f"Обычный клик не сработал: {e}")
-                            
-                            # Способ 2: JavaScript клик
-                            if not clicked:
-                                try:
-                                    self.driver.execute_script("arguments[0].click();", file_element)
-                                    clicked = True
-                                    logger.success("✓ JavaScript клик на файл выполнен успешно")
-                                except Exception as e:
-                                    logger.debug(f"JavaScript клик не сработал: {e}")
-                            
-                            # Способ 3: Клик по родительскому элементу (если файл - это текст внутри ссылки)
-                            if not clicked:
-                                try:
-                                    parent = file_element.find_element(By.XPATH, "./ancestor::a | ./ancestor::button | ./ancestor::*[@role='button'] | ./ancestor::*[@onclick]")
-                                    parent.click()
-                                    clicked = True
-                                    logger.success("✓ Клик по родительскому элементу выполнен успешно")
-                                except Exception as e:
-                                    logger.debug(f"Клик по родительскому элементу не сработал: {e}")
-                            
-                            # Способ 4: Прямой вызов события click через JavaScript
-                            if not clicked:
-                                try:
-                                    self.driver.execute_script("""
-                                        var element = arguments[0];
-                                        var event = new MouseEvent('click', {
-                                            view: window,
-                                            bubbles: true,
-                                            cancelable: true
-                                        });
-                                        element.dispatchEvent(event);
-                                    """, file_element)
-                                    clicked = True
-                                    logger.success("✓ Прямой вызов события click выполнен успешно")
-                                except Exception as e:
-                                    logger.debug(f"Прямой вызов события не сработал: {e}")
-                            
-                            if clicked:
-                                logger.success("✓ Файл открыт из Chrome Downloads!")
-                                time.sleep(2)  # Даём время на открытие файла
-                                # Возвращаем None, так как файл уже открыт
-                                return None
-                            else:
-                                logger.warning("⚠ Не удалось кликнуть на файл в Chrome Downloads")
-                        except Exception as e:
-                            logger.warning(f"Ошибка при клике на файл: {e}")
-                    else:
-                        logger.warning("⚠ Файл не найден на странице Chrome Downloads")
-                        
-                except Exception as e:
-                    logger.warning(f"Ошибка при попытке открыть файл через Chrome Downloads: {e}")
-                    logger.info("→ Продолжаем поиск файла в файловой системе...")
-                
             except Exception as e:
                 logger.error(f"Ошибка при клике на кнопку 'Скачать': {e}")
                 # Делаем скриншот для отладки
@@ -1202,6 +1220,15 @@ class BrowserAgent:
                         
                         # Открываем файл
                         self.open_file(latest_file)
+                        
+                        # Загружаем данные в Google Sheets, если настроено
+                        if self.settings.upload_to_google_sheets and self.settings.google_sheets_url:
+                            try:
+                                self.upload_to_google_sheets(latest_file)
+                            except Exception as e:
+                                logger.error(f"Ошибка при загрузке в Google Sheets: {e}")
+                                logger.exception("Детали ошибки:")
+                        
                         return latest_file
                     else:
                         logger.debug(f"Файл {latest_file.name} слишком старый (до клика)")
@@ -1261,6 +1288,14 @@ class BrowserAgent:
                     logger.info(f"Файл изменён {int(time_diff)} секунд назад - возможно, это нужный файл")
                     self.downloaded_file_path = newest_matching
                     self.open_file(newest_matching)
+                    
+                    # Загружаем данные в Google Sheets, если настроено
+                    if self.settings.upload_to_google_sheets and self.settings.google_sheets_url:
+                        try:
+                            self.upload_to_google_sheets(newest_matching)
+                        except Exception as e:
+                            logger.error(f"Ошибка при загрузке в Google Sheets: {e}")
+                    
                     return newest_matching
                 else:
                     logger.warning(f"Файл слишком старый ({int(time_diff)} секунд назад), но соответствует паттерну")
@@ -1286,14 +1321,306 @@ class BrowserAgent:
                 logger.success(f"✓ Найден недавно изменённый файл по паттерну: {newest_recent}")
                 self.downloaded_file_path = newest_recent
                 self.open_file(newest_recent)
+                
+                # Загружаем данные в Google Sheets, если настроено
+                if self.settings.upload_to_google_sheets and self.settings.google_sheets_url:
+                    try:
+                        self.upload_to_google_sheets(newest_recent)
+                    except Exception as e:
+                        logger.error(f"Ошибка при загрузке в Google Sheets: {e}")
+                
                 return newest_recent
             
-                return None
+            return None
 
         except Exception as e:
             logger.error(f"ОШИБКА В ПРОЦЕССЕ ВЫПОЛНЕНИЯ: {e}")
             logger.exception("Детали ошибки:")
             raise
+
+    
+    def _read_excel_data_directly(self, excel_file: Path) -> list:
+        """Читает данные из Excel файла напрямую, обходя проблемы со стилями.
+        
+        Args:
+            excel_file: Путь к Excel файлу
+            
+        Returns:
+            Список списков с данными из листа "Товары и цены" или второго листа
+        """
+        logger.info("Чтение данных из Excel файла (обходя проблемы со стилями)...")
+        
+        # Пробуем разные способы чтения
+        methods = [
+            ("pandas с engine='xlrd'", lambda: self._read_with_pandas_xlrd(excel_file)),
+            ("pandas с engine='openpyxl' и ignore стили", lambda: self._read_with_pandas_openpyxl(excel_file)),
+            ("openpyxl напрямую из XML", lambda: self._read_with_openpyxl_xml(excel_file)),
+        ]
+        
+        for method_name, method_func in methods:
+            try:
+                logger.info(f"Попытка чтения через: {method_name}...")
+                data = method_func()
+                if data:
+                    logger.success(f"✓ Успешно прочитано через {method_name}: {len(data)} строк")
+                    return data
+            except Exception as e:
+                logger.debug(f"Метод {method_name} не сработал: {e}")
+                continue
+        
+        logger.error("Все методы чтения Excel файла не сработали")
+        raise RuntimeError("Не удалось прочитать Excel файл")
+    
+    def _read_with_pandas_xlrd(self, excel_file: Path) -> list:
+        """Читает через pandas с xlrd (для старых форматов)."""
+        try:
+            df = pd.read_excel(excel_file, sheet_name=0, header=None, engine='xlrd')
+            data = df.fillna("").values.tolist()
+            return [row for row in data if any(str(cell).strip() if cell != "" else False for cell in row)]
+        except:
+            raise
+    
+    def _read_with_pandas_openpyxl(self, excel_file: Path) -> list:
+        """Читает через pandas с openpyxl, игнорируя стили."""
+        try:
+            # Используем openpyxl напрямую с read_only и data_only
+            from openpyxl import load_workbook
+            wb = load_workbook(excel_file, read_only=True, data_only=True, keep_vba=False)
+            
+            # Ищем лист "Товары и цены" или используем второй лист
+            target_sheet = None
+            for name in wb.sheetnames:
+                if "Товары и цены" in name or "товары и цены" in name.lower():
+                    target_sheet = name
+                    break
+            
+            if not target_sheet:
+                if len(wb.sheetnames) > 1:
+                    target_sheet = wb.sheetnames[1]
+                else:
+                    target_sheet = wb.sheetnames[0]
+            
+            ws = wb[target_sheet]
+            data = []
+            for row in ws.iter_rows(values_only=True):
+                if any(cell is not None and str(cell).strip() for cell in row):
+                    data.append([str(cell) if cell is not None else "" for cell in row])
+            
+            return data
+        except:
+            raise
+    
+    def _read_with_openpyxl_xml(self, excel_file: Path) -> list:
+        """Читает напрямую из XML файлов внутри Excel (обходя стили)."""
+        import zipfile
+        from xml.etree import ElementTree as ET
+        
+        try:
+            # Excel файл - это ZIP архив
+            with zipfile.ZipFile(excel_file, 'r') as zip_ref:
+                # Читаем workbook.xml для получения списка листов
+                workbook_xml = zip_ref.read('xl/workbook.xml')
+                workbook_root = ET.fromstring(workbook_xml)
+                
+                # Находим лист "Товары и цены" или второй лист
+                sheets = workbook_root.findall('.//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}sheet')
+                target_sheet_id = None
+                target_sheet_name = None
+                
+                for i, sheet in enumerate(sheets):
+                    name = sheet.get('name', '')
+                    if "Товары и цены" in name or "товары и цены" in name.lower():
+                        target_sheet_id = sheet.get('sheetId', str(i+1))
+                        target_sheet_name = name
+                        break
+                
+                if not target_sheet_id:
+                    if len(sheets) > 1:
+                        target_sheet_id = sheets[1].get('sheetId', '2')
+                        target_sheet_name = sheets[1].get('name', 'Sheet2')
+                    else:
+                        target_sheet_id = sheets[0].get('sheetId', '1')
+                        target_sheet_name = sheets[0].get('name', 'Sheet1')
+                
+                # Читаем данные из sharedStrings.xml (если есть)
+                shared_strings = {}
+                try:
+                    strings_xml = zip_ref.read('xl/sharedStrings.xml')
+                    strings_root = ET.fromstring(strings_xml)
+                    for i, si in enumerate(strings_root.findall('.//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}si')):
+                        text_elem = si.find('.//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t')
+                        if text_elem is not None:
+                            shared_strings[i] = text_elem.text or ""
+                except:
+                    pass
+                
+                # Читаем данные из worksheet
+                worksheet_path = f'xl/worksheets/sheet{target_sheet_id}.xml'
+                try:
+                    worksheet_xml = zip_ref.read(worksheet_path)
+                except:
+                    # Пробуем найти по имени
+                    worksheet_path = None
+                    for name in zip_ref.namelist():
+                        if name.startswith('xl/worksheets/sheet') and name.endswith('.xml'):
+                            worksheet_xml = zip_ref.read(name)
+                            worksheet_path = name
+                            break
+                    if not worksheet_path:
+                        raise
+                
+                worksheet_root = ET.fromstring(worksheet_xml)
+                
+                # Извлекаем данные из строк
+                data = []
+                rows = worksheet_root.findall('.//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}row')
+                
+                for row in rows:
+                    row_data = []
+                    cells = row.findall('.//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c')
+                    
+                    for cell in cells:
+                        cell_value = ""
+                        v_elem = cell.find('.//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}v')
+                        if v_elem is not None and v_elem.text:
+                            # Проверяем, является ли значение ссылкой на shared strings
+                            t_attr = cell.get('t')
+                            if t_attr == 's':
+                                idx = int(v_elem.text)
+                                cell_value = shared_strings.get(idx, "")
+                            else:
+                                cell_value = v_elem.text
+                        
+                        row_data.append(cell_value)
+                    
+                    if any(str(cell).strip() for cell in row_data):
+                        data.append(row_data)
+                
+                return data
+        except Exception as e:
+            logger.debug(f"Ошибка чтения через XML: {e}")
+            raise
+    
+    def upload_to_google_sheets(self, excel_file: Path) -> None:
+        """Загружает Excel файл напрямую в Google Sheets через Drive API.
+        Загружает файл целиком, Google автоматически конвертирует его в формат Google Sheets.
+        
+        Args:
+            excel_file: Путь к Excel файлу
+        """
+        logger.info("="*60)
+        logger.info("ЗАГРУЗКА EXCEL ФАЙЛА В GOOGLE SHEETS ЧЕРЕЗ DRIVE API")
+        logger.info("="*60)
+        
+        if not excel_file.exists():
+            logger.error(f"Файл не существует: {excel_file}")
+            return
+        
+        # Извлекаем spreadsheet_id из URL
+        spreadsheet_id = self._extract_spreadsheet_id()
+        if not spreadsheet_id:
+            logger.error("Не удалось извлечь ID таблицы из URL")
+            return
+        
+        # Проверяем наличие credentials
+        if not self.settings.google_sheets_credentials_path:
+            logger.error("Не указан путь к credentials файлу для Google Sheets API")
+            logger.info("Укажите GOOGLE_SHEETS_CREDENTIALS_PATH в .env файле")
+            return
+        
+        # Обрабатываем путь к credentials файлу (поддерживаем относительные пути)
+        credentials_path_str = self.settings.google_sheets_credentials_path
+        if not credentials_path_str:
+            logger.error("Не указан путь к credentials файлу")
+            return
+        
+        # Если путь относительный, разрешаем его относительно корня проекта
+        credentials_path = Path(credentials_path_str)
+        if not credentials_path.is_absolute():
+            # Получаем корень проекта (где находится run.py)
+            project_root = Path(__file__).parent.parent.parent
+            credentials_path = project_root / credentials_path
+        
+        if not credentials_path.exists():
+            logger.error(f"Файл credentials не найден: {credentials_path}")
+            logger.info(f"  Проверьте путь: {credentials_path_str}")
+            return
+        
+        logger.info(f"Используем credentials файл: {credentials_path}")
+        
+        try:
+            # Аутентификация через service account
+            scopes = ['https://www.googleapis.com/auth/spreadsheets']
+            creds = Credentials.from_service_account_file(
+                str(credentials_path),
+                scopes=scopes
+            )
+            
+            # Создаем сервис Sheets API
+            sheets_service = build('sheets', 'v4', credentials=creds)
+            
+            logger.info(f"Чтение данных из Excel файла...")
+            logger.info(f"  Файл: {excel_file.name}")
+            logger.info(f"  Размер: {excel_file.stat().st_size} байт")
+            
+            # Читаем данные из Excel файла локально (обходя проблемы со стилями)
+            data = self._read_excel_data_directly(excel_file)
+            
+            if not data:
+                logger.warning("В файле нет данных для загрузки")
+                return
+            
+            logger.info(f"  Прочитано {len(data)} строк из Excel файла")
+            
+            # Очищаем существующую таблицу
+            logger.info(f"Очистка существующей таблицы...")
+            sheets_service.spreadsheets().values().clear(
+                spreadsheetId=spreadsheet_id,
+                range='A1:ZZ10000'
+            ).execute()
+            
+            # Загружаем данные в существующую таблицу
+            logger.info(f"Загрузка данных в существующую таблицу...")
+            sheets_service.spreadsheets().values().update(
+                spreadsheetId=spreadsheet_id,
+                range='A1',
+                valueInputOption='RAW',
+                body={'values': data}
+            ).execute()
+            
+            logger.success(f"✓ Excel файл успешно загружен в Google Sheets!")
+            logger.info(f"  Всего строк: {len(data)}")
+            logger.info(f"  URL таблицы: {self.settings.google_sheets_url}")
+            
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке в Google Sheets: {e}")
+            logger.exception("Детали ошибки:")
+            raise
+    
+    def _extract_spreadsheet_id(self) -> str | None:
+        """Извлекает spreadsheet_id из URL Google Sheets.
+        
+        Returns:
+            ID таблицы или None
+        """
+        if not self.settings.google_sheets_url:
+            return None
+        
+        # Формат URL: https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit
+        pattern = r'/spreadsheets/d/([a-zA-Z0-9-_]+)'
+        match = re.search(pattern, self.settings.google_sheets_url)
+        
+        if match:
+            spreadsheet_id = match.group(1)
+            logger.info(f"Извлечен spreadsheet_id: {spreadsheet_id}")
+            return spreadsheet_id
+        
+        # Если ID уже указан в настройках
+        if self.settings.google_sheets_spreadsheet_id:
+            return self.settings.google_sheets_spreadsheet_id
+        
+        logger.warning("Не удалось извлечь spreadsheet_id из URL")
+        return None
 
     def close(self) -> None:
         """Закрытие браузера."""

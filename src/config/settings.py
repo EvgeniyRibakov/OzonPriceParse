@@ -39,6 +39,22 @@ class Settings(BaseSettings):
     # Профиль Chrome для сохранения авторизации
     chrome_user_data_dir: Path | None = None  # Путь к папке User Data Chrome (автоматически определяется, если не указан)
     chrome_profile_name: str = "Default"  # Имя профиля (Default, Profile 1, и т.д.)
+    
+    # Google Sheets интеграция
+    upload_to_google_sheets: bool = False  # Загружать ли файл в Google Sheets
+    google_sheets_url: str | None = None  # URL существующей Google таблицы для загрузки данных
+    google_sheets_credentials_path: str | None = None  # Путь к JSON файлу с credentials для Google Sheets API
+    google_sheets_spreadsheet_id: str | None = None  # ID Google таблицы (извлекается из URL автоматически)
+
+    @field_validator('upload_to_google_sheets', mode='before')
+    @classmethod
+    def convert_bool(cls, v):
+        """Конвертирует строку в булево значение."""
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.lower() in ('true', '1', 'yes', 'on')
+        return bool(v)
 
     @field_validator('chrome_user_data_dir', mode='before')
     @classmethod

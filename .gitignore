@@ -57,6 +57,8 @@ data/
 *.xls
 !requirements.json
 !package.json
+# Исключаем credentials файлы из игнорирования (но они все равно не должны попадать в git)
+google_sheets_credentials.json
 
 # Jupyter Notebook
 .ipynb_checkpoints
