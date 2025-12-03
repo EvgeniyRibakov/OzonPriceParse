@@ -45,6 +45,21 @@ class Settings(BaseSettings):
     google_sheets_url: str | None = None  # URL существующей Google таблицы для загрузки данных
     google_sheets_credentials_path: str | None = None  # Путь к JSON файлу с credentials для Google Sheets API
     google_sheets_spreadsheet_id: str | None = None  # ID Google таблицы (извлекается из URL автоматически)
+    
+    # Telegram бот
+    telegram_bot_token: str | None = None  # Токен бота от @BotFather
+    telegram_bot_password: str | None = None  # Пароль для доступа к боту
+    
+    @field_validator('telegram_bot_password', mode='before')
+    @classmethod
+    def validate_password(cls, v):
+        """Валидация пароля - убираем пробелы и проверяем, что не пустой."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            v = v.strip()
+            return v if v else None
+        return v
 
     @field_validator('upload_to_google_sheets', mode='before')
     @classmethod
