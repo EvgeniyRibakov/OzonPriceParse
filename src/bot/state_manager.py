@@ -110,3 +110,4 @@ class StateManager:
         cls._parsing_active.pop(user_id, None)
         cls._parsing_status.pop(user_id, None)
 
+

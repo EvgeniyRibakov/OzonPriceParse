@@ -35,3 +35,4 @@ def get_last_log_file() -> Optional[Path]:
     log_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return log_files[0]
 
+
