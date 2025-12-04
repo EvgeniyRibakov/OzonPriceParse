@@ -1121,7 +1121,7 @@ class BrowserAgent:
                     logger.debug(f"Не удалось получить папку Downloads из реестра: {e}")
                 
                 # 4. Проверяем альтернативные пути (OneDrive, Documents/Downloads и т.д.)
-                # Путь вида D:\Документы и файлы\Documents\Downloads
+                # Примеры: <диск>:\Документы и файлы\Documents\Downloads или <диск>:\Documents\Downloads
                 user_profile = os.getenv('USERPROFILE') or str(Path.home())
                 
                 # Варианты путей для поиска:

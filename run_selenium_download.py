@@ -20,15 +20,21 @@ def main():
     logger.info("Запуск Selenium-агента для скачивания отчёта Ozon Seller")
     logger.info("=" * 60)
     
-    # URL для старта (из настроек или по умолчанию)
-    start_url = (
-        "https://seller.ozon.ru/app/products?token="
-        "eyJhbGciOiJIUzI1NiIsIm96b25pZCI6Im5vdHNlbnNpdGl2ZSIsInR5cCI6IkpXVCJ9."
-        "eyJ1c2VyX2lkIjo4NjYwNzMzNSwiaXNfcmVnaXN0cmF0aW9uIjpmYWxzZSwicmV0dXJuX3VybCI6"
-        "Imh0dHBzOi8vc2VsbGVyLm96b24ucnUvYXBwL3Byb2R1Y3RzIiwicGF5bG9hZCI6bnVsbCwiZXhw"
-        "IjoxNzY0MzQ3MDIxLCJpYXQiOjE3NjQzNDcwMTEsImlzcyI6Im96b25pZCJ9."
-        "xqCyVmJNVURosfFveqEuSIpYxTU-tNDNJeQt7VtzX14"
-    )
+    # Проверяем обязательные настройки
+    if not settings.phone_number:
+        logger.error("PHONE_NUMBER не указан в .env файле!")
+        logger.error("Укажите номер телефона в формате: PHONE_NUMBER=+79991234567")
+        raise ValueError("PHONE_NUMBER не указан в настройках")
+    
+    # URL для старта из настроек (.env)
+    # Может быть указан с токеном: https://seller.ozon.ru/app/products?token=...
+    # Или без токена: https://seller.ozon.ru/app/products (тогда потребуется авторизация)
+    start_url = settings.ozon_start_url
+    
+    if not start_url or start_url == "https://seller.ozon.ru/app/products":
+        logger.warning("OZON_START_URL не указан в .env или указан без токена")
+        logger.info("Используется базовый URL. Потребуется полная авторизация.")
+        start_url = "https://seller.ozon.ru/app/products"
     
     agent = SeleniumAgent(settings)
     
@@ -51,6 +57,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 

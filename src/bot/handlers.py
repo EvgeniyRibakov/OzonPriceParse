@@ -166,11 +166,13 @@ async def guide_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 3️⃣ КЛОНИРОВАНИЕ ПРОЕКТА
    • Откройте командную строку (Win+R, введите cmd)
-   • Перейдите в нужную папку:
-     cd D:\\Projects
+   • Перейдите в нужную папку (например):
+     cd C:\\Projects
+     # или
+     cd %USERPROFILE%\\Projects
    • Клонируйте репозиторий:
      git clone <URL_РЕПОЗИТОРИЯ>
-   • Или распакуйте архив проекта
+   • Или распакуйте архив проекта в любую папку
 
 4️⃣ СОЗДАНИЕ ВИРТУАЛЬНОГО ОКРУЖЕНИЯ
    • Перейдите в папку проекта:
@@ -335,18 +337,26 @@ def run_parsing(user_id: int, bot, chat_id: int) -> None:
         from src.utils.logger import setup_logger
         setup_logger(settings.logs_dir)
         
+        # Проверяем обязательные настройки
+        if not settings.phone_number:
+            error_msg = "❌ PHONE_NUMBER не указан в .env файле!"
+            asyncio.run(bot.send_message(chat_id=chat_id, text=error_msg))
+            logger.error("PHONE_NUMBER не указан в настройках")
+            StateManager.set_parsing_active(user_id, False)
+            return
+        
         # Создаём агента с callback для 2FA
         agent = BrowserAgentWithTelegram(settings, user_id, bot, chat_id)
         
-        # URL для старта
-        start_url = (
-            "https://seller.ozon.ru/app/products?token="
-            "eyJhbGciOiJIUzI1NiIsIm96b25pZCI6Im5vdHNlbnNpdGl2ZSIsInR5cCI6IkpXVCJ9."
-            "eyJ1c2VyX2lkIjo4NjYwNzMzNSwiaXNfcmVnaXN0cmF0aW9uIjpmYWxzZSwicmV0dXJuX3VybCI6"
-            "Imh0dHBzOi8vc2VsbGVyLm96b24ucnUvYXBwL3Byb2R1Y3RzIiwicGF5bG9hZCI6bnVsbCwiZXhw"
-            "IjoxNzY0MzQ3MDIxLCJpYXQiOjE3NjQzNDcwMTEsImlzcyI6Im96b25pZCJ9."
-            "xqCyVmJNVURosfFveqEuSIpYxTU-tNDNJeQt7VtzX14"
-        )
+        # URL для старта из настроек (.env)
+        # Может быть указан с токеном: https://seller.ozon.ru/app/products?token=...
+        # Или без токена: https://seller.ozon.ru/app/products (тогда потребуется авторизация)
+        start_url = settings.ozon_start_url
+        
+        if not start_url or start_url == "https://seller.ozon.ru/app/products":
+            logger.warning("OZON_START_URL не указан в .env или указан без токена")
+            logger.info("Используется базовый URL. Потребуется полная авторизация.")
+            start_url = "https://seller.ozon.ru/app/products"
         
         # Уведомление о начале
         _send_message_sync(bot, chat_id, "🚀 Парсинг запущен...")

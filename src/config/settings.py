@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     """Настройки приложения."""
 
     # Ozon Seller
-    ozon_start_url: str = "https://seller.ozon.ru/app/products"
-    phone_number: str = "+79966444210"
+    ozon_start_url: str = "https://seller.ozon.ru/app/products"  # Может содержать токен: https://seller.ozon.ru/app/products?token=...
+    phone_number: str = ""  # Должен быть указан в .env файле
 
     # Ozon Statistics API (цены товаров /statistics/v1/price)
     ozon_client_id: str | None = None
@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     delay_between_keys: float = 0.1  # Задержка между нажатиями клавиш
     delay_page_load: float = 3.0  # Задержка после загрузки страницы
 
-    # Пути
+    # Пути (относительные пути от корня проекта - универсальные для всех устройств)
     downloads_dir: Path = Path("downloads")
     logs_dir: Path = Path("logs")
 
